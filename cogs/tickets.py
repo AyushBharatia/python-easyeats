@@ -28,7 +28,7 @@ class TicketButton(discord.ui.Button):
             is_deferred = False
             try:
                 # We'll handle all responses within the ticket handler, just acknowledge here
-                await interaction.response.defer(ephemeral=True, thinking=True)
+                await interaction.response.defer(ephemeral=True, thinking=False)
                 is_deferred = True
             except discord.errors.HTTPException as e:
                 # If the interaction is already acknowledged, we'll handle messages in the handler
@@ -214,7 +214,7 @@ class TicketCreationHandler:
             try:
                 # Just acknowledge the button click with a simple loading message
                 if not self.interaction.response.is_done():
-                    await self.interaction.response.defer(ephemeral=True, thinking=True)
+                    await self.interaction.response.defer(ephemeral=True, thinking=False)
             except Exception as e:
                 logger.error(f"Error deferring initial response: {e}")
                 return
@@ -233,15 +233,7 @@ class TicketCreationHandler:
                 return
             
             # =================================================
-            # STEP 3: Send a single notification to the user
-            # =================================================
-            await self.interaction.followup.send(
-                f"Your ticket has been created in {self.ticket_channel.mention}",
-                ephemeral=True
-            )
-            
-            # =================================================
-            # STEP 4: Initialize ticket data
+            # STEP 3: Initialize ticket data
             # =================================================
             self.data["user_id"] = self.user.id
             self.data["username"] = str(self.user)
@@ -249,7 +241,7 @@ class TicketCreationHandler:
             self.data["status"] = "open"
             
             # =================================================
-            # STEP 5: Start the questionnaire process
+            # STEP 4: Start the questionnaire process
             # =================================================
             result = await self.start_ticket_questionnaire()
             
@@ -258,7 +250,7 @@ class TicketCreationHandler:
                 return
             
             # =================================================
-            # STEP 6: Process the ticket flow
+            # STEP 5: Process the ticket flow
             # =================================================
             try:
                 if not self.timed_out:
@@ -391,7 +383,7 @@ class TicketCreationHandler:
         )
         
         view = CountrySelectionView(self)
-        self.ticket_message = await self.ticket_channel.send(embed=welcome_embed, view=view)
+        self.ticket_message = await self.ticket_channel.send(self.user.mention, embed=welcome_embed, view=view)
         
         # Wait for country selection
         await view.wait()

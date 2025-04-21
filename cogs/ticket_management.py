@@ -423,62 +423,67 @@ class TicketManagement(commands.Cog):
                     ephemeral=True
                 )
             
-            # Confirm deletion
-            embed = create_embed(
-                title="Delete Ticket",
-                description="Are you sure you want to delete this ticket? This will permanently delete the channel and cannot be undone.",
-                color=discord.Color.red().value
+            # Acknowledge the command
+            await self.safe_response(
+                interaction,
+                "Generating transcript and deleting ticket channel...",
+                ephemeral=True
             )
             
-            view = ConfirmationView(interaction.user.id)
-            await self.safe_response(interaction, embed=embed, view=view, ephemeral=True)
+            # Get ticket info before deleting
+            ticket_info = config.get_ticket(interaction.channel.id)
             
-            # Wait for confirmation
-            await view.wait()
-            
-            if view.value:
-                # Get ticket info before deleting
-                ticket_info = config.get_ticket(interaction.channel.id)
-                user_id = int(ticket_info.get("user_id", 0))
-                user = interaction.guild.get_member(user_id)
-                
-                # Remove from config
-                config.delete_ticket(interaction.channel.id)
-                
-                # Send notification to user who opened the ticket
-                if user:
-                    try:
-                        user_embed = create_embed(
-                            title="Ticket Deleted",
-                            description=f"Your ticket in {interaction.guild.name} has been deleted.",
-                            color=discord.Color.red().value
-                        )
-                        await user.send(embed=user_embed)
-                    except:
-                        pass  # Ignore if we can't DM
-                
-                # Delete the channel
+            # Generate transcript before deletion
+            transcript_channel_id = config.get("transcript_channel_id")
+            transcript_channel = None
+            if transcript_channel_id:
                 try:
-                    try:
-                        await interaction.followup.send("Deleting ticket channel...", ephemeral=True)
-                    except:
-                        pass
-                    await asyncio.sleep(3)  # Small delay before deletion
-                    await interaction.channel.delete(reason=f"Ticket deleted by {interaction.user}")
-                except discord.Forbidden:
-                    try:
-                        await interaction.followup.send(
-                            "I don't have permission to delete this channel.",
-                            ephemeral=True
-                        )
-                    except:
-                        pass
+                    transcript_channel = interaction.guild.get_channel(int(transcript_channel_id))
+                except:
+                    logger.error(f"Failed to get transcript channel with ID {transcript_channel_id}")
             
-            elif view.value is False:
+            # Generate transcript if transcript channel is configured
+            if transcript_channel:
                 try:
-                    await interaction.followup.send("Ticket deletion cancelled.", ephemeral=True)
+                    transcript_text = await generate_transcript(interaction.channel, format_type="html")
+                    transcript_file_path = await save_transcript(transcript_text, interaction.channel.id)
+                    
+                    # Send to transcript channel
+                    if transcript_file_path and os.path.exists(transcript_file_path):
+                        user_id = ticket_info.get("user_id", "Unknown")
+                        user_mention = f"<@{user_id}>" if user_id != "Unknown" else "Unknown user"
+                        
+                        message_content = (
+                            f"HTML Transcript for ticket {interaction.channel.name} (ticket deleted)\n"
+                            f"Deleted by: {interaction.user.mention}\n"
+                            f"Ticket creator: {user_mention}\n"
+                            f"Deleted on: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n"
+                            f"Format: HTML with enhanced styling"
+                        )
+                        
+                        await transcript_channel.send(
+                            message_content,
+                            file=discord.File(transcript_file_path)
+                        )
+                except Exception as e:
+                    logger.error(f"Error generating transcript during deletion: {e}")
+            
+            # Remove from config
+            config.delete_ticket(interaction.channel.id)
+            
+            # Delete the channel
+            try:
+                await asyncio.sleep(2)  # Small delay before deletion
+                await interaction.channel.delete(reason=f"Ticket deleted by {interaction.user}")
+            except discord.Forbidden:
+                try:
+                    await interaction.followup.send(
+                        "I don't have permission to delete this channel.",
+                        ephemeral=True
+                    )
                 except:
                     pass
+            
         except Exception as e:
             logger.error(f"Error in ticket_delete command: {e}")
             try:
