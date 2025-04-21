@@ -1,0 +1,98 @@
+{
+    "ticket_embed_message_id": 1363453753717428427,
+    "ticket_embed_channel_id": 1363103752466469015,
+    "purchase_category_id": 1363451886975455273,
+    "staff_role_ids": [],
+    "tickets": {
+        "1363451888317759661": {
+            "user_id": 1339711732561481838,
+            "status": "open",
+            "created_at": "2025-04-20 05:50:23",
+            "country": "Canada",
+            "group_link": "No link provided",
+            "payment_method": "CashApp"
+        },
+        "1363452470310731959": {
+            "user_id": 1339711732561481838,
+            "status": "open",
+            "created_at": "2025-04-20 05:52:42",
+            "country": "Canada",
+            "group_link": "(Invalid format) dsgdsgsgsgsg",
+            "payment_method": "CashApp"
+        },
+        "1363453450339352617": {
+            "user_id": 1339711732561481838,
+            "status": "closed",
+            "created_at": "2025-04-20 05:56:36",
+            "country": "Canada",
+            "group_link": "No link provided",
+            "payment_method": "CashApp"
+        },
+        "1363455513068703796": {
+            "user_id": 1339711732561481838,
+            "status": "open",
+            "created_at": "2025-04-20 06:04:52",
+            "country": "Canada",
+            "group_link": "dagagag",
+            "payment_method": "CashApp"
+        },
+        "1363456302700953661": {
+            "user_id": 1339711732561481838,
+            "status": "open",
+            "created_at": "2025-04-20 06:08:02",
+            "country": "Canada",
+            "group_link": "No link provided",
+            "payment_method": "CashApp"
+        },
+        "1363457256212926495": {
+            "user_id": 1339711732561481838,
+            "status": "open",
+            "created_at": "2025-04-20 06:11:48",
+            "country": "Canada",
+            "group_link": "No link provided",
+            "payment_method": "Zelle"
+        },
+        "1363457832640315472": {
+            "user_id": 1339711732561481838,
+            "status": "open",
+            "created_at": "2025-04-20 06:14:01",
+            "country": "Canada",
+            "group_link": "No link provided",
+            "payment_method": "CashApp"
+        },
+        "1363460722381816030": {
+            "user_id": 1339711732561481838,
+            "status": "closed",
+            "created_at": "2025-04-20 06:25:30",
+            "country": "Canada",
+            "group_link": "kk",
+            "payment_method": "CashApp"
+        },
+        "1363461125861146696": {
+            "user_id": 1339711732561481838,
+            "status": "closed",
+            "created_at": "2025-04-20 06:27:06",
+            "country": "Canada",
+            "group_link": "No link provided",
+            "payment_method": "CashApp"
+        },
+        "1363748288716865606": {
+            "user_id": 1339711732561481838,
+            "status": "closed",
+            "created_at": "2025-04-21 01:28:11",
+            "country": "Canada",
+            "group_link": "No link provided",
+            "payment_method": "PayPal"
+        },
+        "1363749085600940154": {
+            "user_id": 1339711732561481838,
+            "status": "closed",
+            "created_at": "2025-04-21 01:31:21",
+            "country": "Canada",
+            "group_link": "No link provided",
+            "payment_method": "CashApp"
+        }
+    },
+    "latest_ticket_number": 8,
+    "transcript_channel_id": 1363104132759687199
+}
