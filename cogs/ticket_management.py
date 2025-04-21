@@ -122,7 +122,23 @@ class TicketManagement(commands.Cog):
     
     def is_ticket_channel(self, channel_id: int) -> bool:
         """Check if a channel is a ticket channel"""
-        return config.get_ticket(channel_id) is not None
+        # First, check if channel is in the tickets config
+        if config.get_ticket(channel_id) is not None:
+            return True
+        
+        # If not in config, check if the channel name follows ticket pattern
+        channel = self.bot.get_channel(channel_id)
+        if channel and isinstance(channel, discord.TextChannel):
+            # Check if channel name starts with "ticket-" or "ticket"
+            if channel.name.startswith("ticket-") or channel.name.startswith("ticket"):
+                return True
+            
+            # Check if channel is in the ticket category
+            ticket_category_id = config.get("ticket_category_id")
+            if ticket_category_id and channel.category_id == int(ticket_category_id):
+                return True
+        
+        return False
     
     async def check_permissions(self, interaction: discord.Interaction) -> bool:
         """Check if the user has permission to manage tickets"""
@@ -301,98 +317,71 @@ class TicketManagement(commands.Cog):
                     ephemeral=True
                 )
             
-            # Confirm closing the ticket
-            embed = create_embed(
-                title="Close Ticket",
-                description="Are you sure you want to close this ticket? This will archive the channel and generate an HTML transcript.",
-                color=discord.Color.orange().value
+            # Acknowledge the command
+            await self.safe_response(
+                interaction,
+                "Closing ticket and generating transcript...",
+                ephemeral=True
             )
             
-            view = ConfirmationView(interaction.user.id)
-            await self.safe_response(interaction, embed=embed, view=view, ephemeral=True)
+            # Get ticket info
+            ticket_info = config.get_ticket(interaction.channel.id)
+            user_id = int(ticket_info.get("user_id", 0))
+            user = interaction.guild.get_member(user_id)
             
-            # Wait for confirmation
-            await view.wait()
+            # Get transcript channel if configured
+            transcript_channel_id = config.get("transcript_channel_id")
+            transcript_channel = None
+            if transcript_channel_id:
+                try:
+                    transcript_channel = interaction.guild.get_channel(int(transcript_channel_id))
+                except:
+                    logger.error(f"Failed to get transcript channel with ID {transcript_channel_id}")
             
-            if view.value:
-                # Get ticket info
-                ticket_info = config.get_ticket(interaction.channel.id)
-                user_id = int(ticket_info.get("user_id", 0))
-                user = interaction.guild.get_member(user_id)
-                
-                # Get transcript channel if configured
-                transcript_channel_id = config.get("transcript_channel_id")
-                transcript_channel = None
-                if transcript_channel_id:
-                    try:
-                        transcript_channel = interaction.guild.get_channel(int(transcript_channel_id))
-                    except:
-                        logger.error(f"Failed to get transcript channel with ID {transcript_channel_id}")
-                
-                # Generate transcript if transcript channel is configured
-                transcript_file_path = None
-                if transcript_channel:
-                    await interaction.channel.send("Generating HTML transcript...")
-                    try:
-                        transcript_text = await generate_transcript(interaction.channel, format_type="html")
-                        transcript_file_path = await save_transcript(transcript_text, interaction.channel.id)
+            # Generate transcript if transcript channel is configured
+            transcript_file_path = None
+            if transcript_channel:
+                await interaction.channel.send("Generating HTML transcript...")
+                try:
+                    transcript_text = await generate_transcript(interaction.channel, format_type="html")
+                    transcript_file_path = await save_transcript(transcript_text, interaction.channel.id)
+                    
+                    # Send to transcript channel
+                    if transcript_file_path and os.path.exists(transcript_file_path):
+                        user_mention = f"<@{user_id}>" if user else "Unknown user"
                         
-                        # Send to transcript channel
-                        if transcript_file_path and os.path.exists(transcript_file_path):
-                            user_mention = f"<@{user_id}>" if user else "Unknown user"
-                            
-                            message_content = (
-                                f"HTML Transcript for ticket {interaction.channel.name} (ticket closed)\n"
-                                f"Closed by: {interaction.user.mention}\n"
-                                f"Ticket creator: {user_mention}\n"
-                                f"Closed on: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n"
-                                f"Format: HTML with enhanced styling"
-                            )
-                            
-                            await transcript_channel.send(
-                                message_content,
-                                file=discord.File(transcript_file_path)
-                            )
-                            
-                            # Notify in ticket channel
-                            await interaction.channel.send(f"HTML transcript has been sent to {transcript_channel.mention}.")
-                    except Exception as e:
-                        logger.error(f"Error generating transcript: {e}")
-                        await interaction.channel.send("Failed to generate transcript.")
-                else:
-                    await interaction.channel.send("No transcript channel is configured. Closing ticket without generating transcript.")
-                
-                # Update ticket status
-                config.update_ticket_status(interaction.channel.id, "closed")
-                
-                # Create closed embed
-                closed_embed = create_embed(
-                    title="Ticket Closed",
-                    description=f"This ticket has been closed by {interaction.user.mention}.",
-                    color=discord.Color.red().value
-                )
-                
-                # Send closing message
-                await interaction.channel.send(embed=closed_embed)
-                
-                # Revoke permissions for the ticket creator
-                if user:
-                    try:
-                        await interaction.channel.set_permissions(user, overwrite=None)
-                    except:
-                        pass
-                
-                # Update channel name to show it's closed
+                        message_content = (
+                            f"HTML Transcript for ticket {interaction.channel.name} (ticket closed)\n"
+                            f"Closed by: {interaction.user.mention}\n"
+                            f"Ticket creator: {user_mention}\n"
+                            f"Closed on: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n"
+                            f"Format: HTML with enhanced styling"
+                        )
+                        
+                        await transcript_channel.send(
+                            message_content,
+                            file=discord.File(transcript_file_path)
+                        )
+                except Exception as e:
+                    logger.error(f"Error generating transcript: {e}")
+                    await interaction.channel.send("Failed to generate transcript.")
+            
+            # Remove from config
+            config.delete_ticket(interaction.channel.id)
+            
+            # Delete the channel
+            try:
+                await asyncio.sleep(2)  # Small delay before deletion
+                await interaction.channel.delete(reason=f"Ticket closed by {interaction.user}")
+            except discord.Forbidden:
                 try:
-                    await interaction.channel.edit(name=f"{interaction.channel.name}-closed")
-                except discord.Forbidden:
-                    pass  # Ignore if we can't rename
-                
-            elif view.value is False:
-                try:
-                    await interaction.followup.send("Ticket closure cancelled.", ephemeral=True)
+                    await interaction.followup.send(
+                        "I don't have permission to delete this channel.",
+                        ephemeral=True
+                    )
                 except:
                     pass
+            
         except Exception as e:
             logger.error(f"Error in ticket_close command: {e}")
             try:
@@ -828,98 +817,69 @@ class TicketManagement(commands.Cog):
                     ephemeral=True
                 )
             
-            # Confirm closing the ticket
-            embed = create_embed(
-                title="Close Ticket",
-                description="Are you sure you want to close this ticket? This will archive the channel and generate an HTML transcript.",
-                color=discord.Color.orange().value
+            # Acknowledge immediately without confirmation
+            await interaction.followup.send(
+                "Closing ticket and generating transcript...",
+                ephemeral=True
             )
             
-            view = ConfirmationView(interaction.user.id)
-            await interaction.followup.send(embed=embed, view=view, ephemeral=True)
+            # Get ticket info
+            ticket_info = config.get_ticket(interaction.channel.id)
+            user_id = int(ticket_info.get("user_id", 0))
+            user = interaction.guild.get_member(user_id)
             
-            # Wait for confirmation
-            await view.wait()
+            # Generate transcript with HTML format by default
+            transcript_channel_id = config.get("transcript_channel_id")
+            transcript_channel = None
+            if transcript_channel_id:
+                try:
+                    transcript_channel = interaction.guild.get_channel(int(transcript_channel_id))
+                except:
+                    logger.error(f"Failed to get transcript channel with ID {transcript_channel_id}")
             
-            if view.value:
-                # Process similar to ticket_close command
-                # Get ticket info
-                ticket_info = config.get_ticket(interaction.channel.id)
-                user_id = int(ticket_info.get("user_id", 0))
-                user = interaction.guild.get_member(user_id)
-                
-                # Generate transcript with HTML format by default
-                transcript_channel_id = config.get("transcript_channel_id")
-                transcript_channel = None
-                if transcript_channel_id:
-                    try:
-                        transcript_channel = interaction.guild.get_channel(int(transcript_channel_id))
-                    except:
-                        logger.error(f"Failed to get transcript channel with ID {transcript_channel_id}")
-                
-                # Generate transcript if transcript channel is configured
-                if transcript_channel:
-                    await interaction.channel.send("Generating HTML transcript...")
-                    try:
-                        transcript_text = await generate_transcript(interaction.channel, format_type="html")
-                        transcript_file_path = await save_transcript(transcript_text, interaction.channel.id)
+            # Generate transcript if transcript channel is configured
+            if transcript_channel:
+                await interaction.channel.send("Generating HTML transcript...")
+                try:
+                    transcript_text = await generate_transcript(interaction.channel, format_type="html")
+                    transcript_file_path = await save_transcript(transcript_text, interaction.channel.id)
+                    
+                    # Send to transcript channel
+                    if transcript_file_path and os.path.exists(transcript_file_path):
+                        user_mention = f"<@{user_id}>" if user else "Unknown user"
                         
-                        # Send to transcript channel
-                        if transcript_file_path and os.path.exists(transcript_file_path):
-                            user_mention = f"<@{user_id}>" if user else "Unknown user"
-                            
-                            message_content = (
-                                f"HTML Transcript for ticket {interaction.channel.name} (ticket closed)\n"
-                                f"Closed by: {interaction.user.mention}\n"
-                                f"Ticket creator: {user_mention}\n"
-                                f"Closed on: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n"
-                                f"Format: HTML with enhanced styling"
-                            )
-                            
-                            await transcript_channel.send(
-                                message_content,
-                                file=discord.File(transcript_file_path)
-                            )
-                            
-                            # Notify in ticket channel
-                            await interaction.channel.send(f"HTML transcript has been sent to {transcript_channel.mention}.")
-                    except Exception as e:
-                        logger.error(f"Error generating transcript: {e}")
-                        await interaction.channel.send("Failed to generate transcript.")
-                else:
-                    await interaction.channel.send("No transcript channel is configured. Closing ticket without generating transcript.")
-                
-                # Update ticket status
-                config.update_ticket_status(interaction.channel.id, "closed")
-                
-                # Create closed embed
-                closed_embed = create_embed(
-                    title="Ticket Closed",
-                    description=f"This ticket has been closed by {interaction.user.mention}.",
-                    color=discord.Color.red().value
-                )
-                
-                # Send closing message
-                await interaction.channel.send(embed=closed_embed)
-                
-                # Revoke permissions for the ticket creator
-                if user:
-                    try:
-                        await interaction.channel.set_permissions(user, overwrite=None)
-                    except:
-                        pass
-                
-                # Update channel name to show it's closed
+                        message_content = (
+                            f"HTML Transcript for ticket {interaction.channel.name} (ticket closed)\n"
+                            f"Closed by: {interaction.user.mention}\n"
+                            f"Ticket creator: {user_mention}\n"
+                            f"Closed on: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n"
+                            f"Format: HTML with enhanced styling"
+                        )
+                        
+                        await transcript_channel.send(
+                            message_content,
+                            file=discord.File(transcript_file_path)
+                        )
+                except Exception as e:
+                    logger.error(f"Error generating transcript: {e}")
+                    await interaction.channel.send("Failed to generate transcript.")
+            
+            # Remove from config
+            config.delete_ticket(interaction.channel.id)
+            
+            # Delete the channel
+            try:
+                await asyncio.sleep(2)  # Small delay before deletion
+                await interaction.channel.delete(reason=f"Ticket closed by {interaction.user}")
+            except discord.Forbidden:
                 try:
-                    await interaction.channel.edit(name=f"{interaction.channel.name}-closed")
-                except discord.Forbidden:
-                    pass  # Ignore if we can't rename
-                
-            elif view.value is False:
-                try:
-                    await interaction.followup.send("Ticket closure cancelled.", ephemeral=True)
+                    await interaction.followup.send(
+                        "I don't have permission to delete this channel.",
+                        ephemeral=True
+                    )
                 except:
                     pass
+            
         except Exception as e:
             logger.error(f"Error in handle_close_button: {e}")
             try:

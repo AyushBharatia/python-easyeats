@@ -48,9 +48,13 @@ class StaffRoleView(discord.ui.View):
     def __init__(self, cog, roles, current_staff_roles):
         super().__init__(timeout=180)
         self.cog = cog
-        self.add_item(StaffRoleSelect(roles, current_staff_roles))
+        
+        # Add select with explicit row parameter to ensure it's above the back button
+        select = StaffRoleSelect(roles, current_staff_roles)
+        select.row = 0  # Explicitly set to row 0
+        self.add_item(select)
     
-    @discord.ui.button(label="Back to Staff", style=discord.ButtonStyle.secondary, emoji="<:undo:1362583079692140594>")
+    @discord.ui.button(label="Back to Staff", style=discord.ButtonStyle.secondary, emoji="<:undo:1362583079692140594>", row=1)
     async def back_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         # Return to Staff Category view instead of main settings
         await self.cog.show_staff_category(interaction)
@@ -296,6 +300,136 @@ class StaffCategoryView(discord.ui.View):
         embed = self.cog._create_settings_overview_embed()
         await interaction.response.edit_message(embed=embed, view=SettingsView(self.cog))
 
+# Replace modal approach with dropdown selects
+class ChannelSelect(discord.ui.Select):
+    def __init__(self, channels, current_channel_id, setting_type):
+        # Convert current channel ID to int for comparison
+        current_channel_id = int(current_channel_id) if current_channel_id else None
+        
+        # Filter channels by type (text channels)
+        text_channels = [channel for channel in channels if isinstance(channel, discord.TextChannel)]
+        
+        # Create options from server channels, marking current channel as default
+        options = [
+            discord.SelectOption(
+                label=channel.name,
+                value=str(channel.id),
+                default=current_channel_id == channel.id,
+                description=f"#{channel.name}"
+            ) for channel in text_channels[:25]  # Discord limits to 25 options
+        ]
+        
+        # Add a "None" option if needed
+        if not current_channel_id or current_channel_id not in [int(opt.value) for opt in options]:
+            options.insert(0, discord.SelectOption(
+                label="None/Not Set",
+                value="0",
+                default=not current_channel_id,
+                description="No channel selected"
+            ))
+        
+        # Store setting type for callback
+        self.setting_type = setting_type
+        
+        super().__init__(
+            placeholder="Select a channel...",
+            min_values=1,
+            max_values=1,
+            options=options
+        )
+    
+    async def callback(self, interaction: discord.Interaction):
+        # Get the selected channel ID
+        channel_id = int(self.values[0]) if self.values[0] != "0" else None
+        
+        # Update the appropriate setting based on setting_type
+        if self.setting_type == "ticket_channel":
+            config.set("ticket_channel_id", channel_id)
+            await interaction.client.get_cog("Settings").show_ticket_channel_settings(interaction)
+        
+        elif self.setting_type == "transcript_channel":
+            config.set("transcript_channel_id", channel_id)
+            await interaction.client.get_cog("Settings").show_transcript_channel_settings(interaction)
+        
+        # Save the config
+        config.save()
+
+# Helper function to get category name from ID
+def get_category_name(guild, category_id):
+    """Get the name of a category from its ID"""
+    if not category_id:
+        return "*Not set*"
+    
+    # Use the channel mention format as requested
+    return f"<#{category_id}>"
+
+class CategorySelect(discord.ui.Select):
+    def __init__(self, channels, current_category_id):
+        # Convert current category ID to int for comparison
+        current_category_id = int(current_category_id) if current_category_id else None
+        
+        # Filter channels by type (category channels)
+        categories = [channel for channel in channels if isinstance(channel, discord.CategoryChannel)]
+        
+        # Create options from server categories, marking current category as default
+        options = [
+            discord.SelectOption(
+                label=category.name,
+                value=str(category.id),  # Make sure we're using the ID as value
+                default=current_category_id == category.id,
+                description=f"Category: {category.name}"
+            ) for category in categories[:25]  # Discord limits to 25 options
+        ]
+        
+        # Add a "None" option if needed
+        if not current_category_id or current_category_id not in [int(opt.value) for opt in options]:
+            options.insert(0, discord.SelectOption(
+                label="None/Not Set",
+                value="0",
+                default=not current_category_id,
+                description="No category selected"
+            ))
+        
+        super().__init__(
+            placeholder="Select a category...",
+            min_values=1,
+            max_values=1,
+            options=options
+        )
+    
+    async def callback(self, interaction: discord.Interaction):
+        # Get the selected category ID - ensure it's an integer or None
+        selected_value = self.values[0]
+        category_id = int(selected_value) if selected_value != "0" else None
+        
+        # Debug log to verify the selected value
+        logger.info(f"Selected category: Value={selected_value}, ID={category_id}")
+        
+        # Get the category from the guild to verify it exists
+        category = None
+        if category_id:
+            category = interaction.guild.get_channel(category_id)
+            if not category or not isinstance(category, discord.CategoryChannel):
+                logger.error(f"Selected category ID {category_id} is not a valid category")
+                # Silently continue instead of showing an error message
+                return
+            logger.info(f"Found category: {category.name} (ID: {category.id})")
+        
+        # Update the setting
+        config.set("ticket_category_id", category_id)
+        
+        # Save the config
+        config.save()
+        
+        # Explicitly verify the saved value from config (log only)
+        saved_category_id = config.get("ticket_category_id")
+        logger.info(f"Saved category ID: {saved_category_id} (matches selected: {saved_category_id == category_id})")
+        
+        # No success message - just update the view silently
+        
+        # Show the updated settings
+        await interaction.client.get_cog("Settings").show_ticket_category_settings(interaction)
+
 class Settings(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
@@ -387,8 +521,11 @@ class Settings(commands.Cog):
             inline=False
         )
         
+        # Get the category name instead of using <#{id}> format
+        category_name = get_category_name(interaction.guild, ticket_category_id)
+        
         embed.add_field(
-            name=f"<:ticket_configuration:1363768515664019486> Ticket Category: {f'<#{ticket_category_id}>' if ticket_category_id else '*Not set*'}",
+            name=f"<:ticket_configuration:1363768515664019486> Ticket Category: {category_name}",
             value="-# ╰・All created tickets will be placed in this category.",
             inline=False
         )
@@ -638,7 +775,7 @@ class Settings(commands.Cog):
             logger.error(f"Error updating cooldown settings view: {e}")
             await interaction.followup.send(embed=embed, view=CooldownView(self), ephemeral=True)
 
-    async def show_ticket_channel_settings(self, interaction: discord.Interaction, success_message=None):
+    async def show_ticket_channel_settings(self, interaction: discord.Interaction):
         """Show ticket channel settings"""
         ticket_channel_id = config.get("ticket_channel_id")
         
@@ -659,34 +796,29 @@ class Settings(commands.Cog):
             inline=False
         )
         
-        # Add success message if provided
-        if success_message:
-            embed.add_field(
-                name="Success",
-                value=success_message,
-                inline=False
-            )
-        
-        # Create a modal for setting the ticket channel
+        # Create a view with channel dropdown
         class TicketChannelView(discord.ui.View):
             def __init__(self, cog):
                 super().__init__(timeout=180)
                 self.cog = cog
-            
-            @discord.ui.button(label="Set Ticket Channel", style=discord.ButtonStyle.primary, emoji="<:ticket_channel:1363764000822792395>", row=0)
-            async def set_button(self, button_interaction: discord.Interaction, button: discord.ui.Button):
-                modal = ChannelSelectModal(title="Set Ticket Channel", custom_id="ticket_channel")
-                await button_interaction.response.send_modal(modal)
-                await modal.wait()
                 
-                if modal.channel_id:
-                    config.set("ticket_channel_id", modal.channel_id)
-                    config.save()  # Save immediately
-                    await self.cog.show_ticket_channel_settings(button_interaction, f"Ticket channel set to <#{modal.channel_id}>")
-                else:
+                # Add channel select dropdown
+                self.add_item(ChannelSelect(
+                    channels=interaction.guild.channels,
+                    current_channel_id=ticket_channel_id,
+                    setting_type="ticket_channel"
+                ))
+            
+            @discord.ui.button(label="Deploy Ticket Message", style=discord.ButtonStyle.success, emoji="📨", row=1)
+            async def deploy_button(self, button_interaction: discord.Interaction, button: discord.ui.Button):
+                # Deploy the ticket message without showing success messages
+                success = await self.cog.deploy_ticket_message(button_interaction)
+                
+                # Just refresh the settings view without adding a success message
+                if success:
                     await self.cog.show_ticket_channel_settings(button_interaction)
             
-            @discord.ui.button(label="Back to Config", style=discord.ButtonStyle.secondary, emoji="<:undo:1362583079692140594>", row=0)
+            @discord.ui.button(label="Back to Config", style=discord.ButtonStyle.secondary, emoji="<:undo:1362583079692140594>", row=1)
             async def back_button(self, button_interaction: discord.Interaction, button: discord.ui.Button):
                 await self.cog.show_bot_config_category(button_interaction)
         
@@ -696,7 +828,7 @@ class Settings(commands.Cog):
             logger.error(f"Error showing ticket channel settings: {e}")
             await interaction.followup.send(embed=embed, view=TicketChannelView(self), ephemeral=True)
 
-    async def show_ticket_category_settings(self, interaction: discord.Interaction, success_message=None):
+    async def show_ticket_category_settings(self, interaction: discord.Interaction):
         """Show ticket category settings"""
         ticket_category_id = config.get("ticket_category_id")
         
@@ -711,40 +843,28 @@ class Settings(commands.Cog):
             icon_url="https://i.gyazo.com/97be0efe0b5f5dc42afc223b0fcd908a.png"
         )
         
+        # Get the category name instead of using <#{id}> format
+        category_name = get_category_name(interaction.guild, ticket_category_id)
+        
         embed.add_field(
-            name=f"<:ticket_configuration:1363768515664019486> Current Ticket Category: {f'<#{ticket_category_id}>' if ticket_category_id else '*Not set*'}",
+            name=f"<:ticket_configuration:1363768515664019486> Current Ticket Category: {category_name}",
             value="-# ╰・All created tickets will be placed in this category.",
             inline=False
         )
         
-        # Add success message if provided
-        if success_message:
-            embed.add_field(
-                name="Success",
-                value=success_message,
-                inline=False
-            )
-        
-        # Create a modal for setting the ticket category
+        # Create a view with category dropdown
         class TicketCategoryView(discord.ui.View):
             def __init__(self, cog):
                 super().__init__(timeout=180)
                 self.cog = cog
-            
-            @discord.ui.button(label="Set Ticket Category", style=discord.ButtonStyle.primary, emoji="<:ticket_configuration:1363768515664019486>", row=0)
-            async def set_button(self, button_interaction: discord.Interaction, button: discord.ui.Button):
-                modal = ChannelSelectModal(title="Set Ticket Category", custom_id="ticket_category")
-                await button_interaction.response.send_modal(modal)
-                await modal.wait()
                 
-                if modal.channel_id:
-                    config.set("ticket_category_id", modal.channel_id)
-                    config.save()  # Save immediately
-                    await self.cog.show_ticket_category_settings(button_interaction, f"Ticket category set to <#{modal.channel_id}>")
-                else:
-                    await self.cog.show_ticket_category_settings(button_interaction)
+                # Add category select dropdown
+                self.add_item(CategorySelect(
+                    channels=interaction.guild.channels,
+                    current_category_id=ticket_category_id
+                ))
             
-            @discord.ui.button(label="Back to Config", style=discord.ButtonStyle.secondary, emoji="<:undo:1362583079692140594>", row=0)
+            @discord.ui.button(label="Back to Config", style=discord.ButtonStyle.secondary, emoji="<:undo:1362583079692140594>", row=1)
             async def back_button(self, button_interaction: discord.Interaction, button: discord.ui.Button):
                 await self.cog.show_bot_config_category(button_interaction)
         
@@ -754,7 +874,7 @@ class Settings(commands.Cog):
             logger.error(f"Error showing ticket category settings: {e}")
             await interaction.followup.send(embed=embed, view=TicketCategoryView(self), ephemeral=True)
 
-    async def show_transcript_channel_settings(self, interaction: discord.Interaction, success_message=None):
+    async def show_transcript_channel_settings(self, interaction: discord.Interaction):
         """Show transcript channel settings"""
         transcript_channel_id = config.get("transcript_channel_id")
         
@@ -775,34 +895,20 @@ class Settings(commands.Cog):
             inline=False
         )
         
-        # Add success message if provided
-        if success_message:
-            embed.add_field(
-                name="Success",
-                value=success_message,
-                inline=False
-            )
-        
-        # Create a modal for setting the transcript channel
+        # Create a view with channel dropdown
         class TranscriptChannelView(discord.ui.View):
             def __init__(self, cog):
                 super().__init__(timeout=180)
                 self.cog = cog
-            
-            @discord.ui.button(label="Set Transcript Channel", style=discord.ButtonStyle.primary, emoji="<:ticket_transcription:1363769297331028049>", row=0)
-            async def set_button(self, button_interaction: discord.Interaction, button: discord.ui.Button):
-                modal = ChannelSelectModal(title="Set Transcript Channel", custom_id="transcript_channel")
-                await button_interaction.response.send_modal(modal)
-                await modal.wait()
                 
-                if modal.channel_id:
-                    config.set("transcript_channel_id", modal.channel_id)
-                    config.save()  # Save immediately
-                    await self.cog.show_transcript_channel_settings(button_interaction, f"Transcript channel set to <#{modal.channel_id}>")
-                else:
-                    await self.cog.show_transcript_channel_settings(button_interaction)
+                # Add channel select dropdown
+                self.add_item(ChannelSelect(
+                    channels=interaction.guild.channels,
+                    current_channel_id=transcript_channel_id,
+                    setting_type="transcript_channel"
+                ))
             
-            @discord.ui.button(label="Back to Config", style=discord.ButtonStyle.secondary, emoji="<:undo:1362583079692140594>", row=0)
+            @discord.ui.button(label="Back to Config", style=discord.ButtonStyle.secondary, emoji="<:undo:1362583079692140594>", row=1)
             async def back_button(self, button_interaction: discord.Interaction, button: discord.ui.Button):
                 await self.cog.show_bot_config_category(button_interaction)
         
@@ -811,6 +917,50 @@ class Settings(commands.Cog):
         except Exception as e:
             logger.error(f"Error showing transcript channel settings: {e}")
             await interaction.followup.send(embed=embed, view=TranscriptChannelView(self), ephemeral=True)
+
+    async def deploy_ticket_message(self, interaction: discord.Interaction):
+        """Create and send the ticket creation message to the configured channel"""
+        ticket_channel_id = config.get("ticket_channel_id")
+        
+        if not ticket_channel_id:
+            await interaction.response.send_message(
+                "❌ You need to set a ticket channel first!",
+                ephemeral=True
+            )
+            return False
+        
+        # Get the channel from the ID
+        ticket_channel = interaction.guild.get_channel(int(ticket_channel_id))
+        if not ticket_channel:
+            await interaction.response.send_message(
+                "❌ The configured ticket channel could not be found! Please check your settings.",
+                ephemeral=True
+            )
+            return False
+        
+        # Create the ticket embed
+        embed = create_embed(
+            title="Create a Support Ticket",
+            description="Click the button below to create a new support ticket.",
+            color=discord.Color(0x5701c5)
+        )
+        
+        try:
+            # Create the view with ticket creation button
+            from .tickets import TicketView  # Import here to avoid circular imports
+            # Fix: Initialize TicketView without passing bot
+            view = TicketView()
+            
+            # Send the message to the ticket channel
+            await ticket_channel.send(embed=embed, view=view)
+            return True
+        except Exception as e:
+            logger.error(f"Error deploying ticket message: {e}")
+            await interaction.response.send_message(
+                f"❌ Error deploying ticket message: {e}",
+                ephemeral=True
+            )
+            return False
 
 async def setup(bot):
     await bot.add_cog(Settings(bot)) 
