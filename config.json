@@ -1,5 +1,5 @@
 {
-    "ticket_embed_message_id": 1363453753717428427,
+    "ticket_embed_message_id": 1363758778998325339,
     "ticket_embed_channel_id": 1363103752466469015,
     "purchase_category_id": 1363451886975455273,
     "staff_role_ids": [],
@@ -84,15 +84,15 @@
             "group_link": "No link provided",
             "payment_method": "PayPal"
         },
-        "1363749085600940154": {
+        "1363758805992738836": {
             "user_id": 1339711732561481838,
-            "status": "closed",
-            "created_at": "2025-04-21 01:31:21",
+            "status": "open",
+            "created_at": "2025-04-21 02:09:58",
             "country": "Canada",
             "group_link": "No link provided",
             "payment_method": "CashApp"
         }
     },
-    "latest_ticket_number": 8,
+    "latest_ticket_number": 16,
     "transcript_channel_id": 1363104132759687199
 }

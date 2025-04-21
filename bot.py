@@ -34,7 +34,8 @@ class TicketBot(commands.Bot):
         self.initial_extensions = [
             'cogs.tickets',
             'cogs.ticket_management',
-            'cogs.error_handler'
+            'cogs.error_handler',
+            'cogs.settings'
         ]
     
     async def setup_hook(self):

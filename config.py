@@ -9,7 +9,8 @@ DEFAULT_CONFIG = {
     "ticket_counter": 0,
     "ticket_category_id": None,
     "ticket_channel_id": None,
-    "transcript_channel_id": None  # New setting for transcript channel
+    "transcript_channel_id": None,  # New setting for transcript channel
+    "ticket_cooldown": 30  # Default cooldown period in seconds
 }
 
 class Config:
